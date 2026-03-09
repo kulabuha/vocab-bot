@@ -301,7 +301,11 @@ func (r *RepoSQLite) CleanupUserData(chatID int64) (attemptsDeleted, exercisesDe
 	var nColloc int64
 	if len(toDelete) > 0 {
 		query := `DELETE FROM collocations WHERE id IN (` + strings.TrimSuffix(strings.Repeat("?,", len(toDelete)), ",") + `)`
-		resColloc, err := r.db.ExecContext(ctx, query, toDelete...)
+		args := make([]any, len(toDelete))
+		for i, id := range toDelete {
+			args[i] = id
+		}
+		resColloc, err := r.db.ExecContext(ctx, query, args...)
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf("delete collocations: %w", err)
 		}

@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vocab-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vocab-bot
+  template:
+    metadata:
+      labels:
+        app: vocab-bot
+    spec:
+      containers:
+        - name: bot
+          image: vocab-bot:latest
+          envFrom:
+            - configMapRef:
+                name: vocab-bot-config
+            - secretRef:
+                name: vocab-bot-secrets
+          env:
+            - name: LLM_API_BASE
+              value: "https://api.openai.com/v1"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: vocab-bot-data

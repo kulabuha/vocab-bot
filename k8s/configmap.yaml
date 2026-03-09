@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vocab-bot-config
+data:
+  DB_PATH: "/data/app.db"
+  LLM_TIMEOUT_SEC: "60"

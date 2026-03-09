@@ -1,0 +1,29 @@
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+
+# Local SQLite
+*.db
+*.db-shm
+*.db-wal
+data/
+
+# Binaries
+llm-debug
+vocab-bot
+bot
+*.exe
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go test
+*.test
+*.out
+coverage.html

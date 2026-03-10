@@ -314,6 +314,34 @@ See **`docs/SECURITY.md`** for input limits, secrets handling, and network guida
 
 ---
 
+## 8. Error collection and analysis
+
+To collect error-level logs for later analysis:
+
+1. **Set `ERROR_LOG_PATH`** in `.env` to a file path (e.g. `/var/log/vocab-bot/errors.log` or `./data/errors.log`). Ensure the process can write there (create the directory if needed).
+2. **Behavior:** All `slog` error-level (and above) logs are appended to that file as **one JSON object per line** (e.g. `{"time":"...","level":"ERROR","msg":"...","err":"..."}`). Stderr is unchanged.
+3. **How to get / analyze:**
+   - **View recent:** `tail -f /var/log/vocab-bot/errors.log`
+   - **Search:** `grep "add words" /var/log/vocab-bot/errors.log`
+   - **Export:** copy the file or ship it to your logging stack (e.g. rsync, S3, Loki, Elastic). Each line is valid JSON for parsing.
+   - **Docker:** mount a volume for the log path and set `ERROR_LOG_PATH` to a path inside the container (e.g. `/data/errors.log`).
+
+If `ERROR_LOG_PATH` is empty or the file cannot be opened, errors are only written to stderr (e.g. `docker compose logs bot`).
+
+---
+
+## 9. Per-user usage statistics (optional)
+
+To persist per-user usage stats to a separate JSON file:
+
+1. **Set `STATS_FILE_PATH`** in `.env` (e.g. `./data/stats.json` or `/var/lib/vocab-bot/stats.json`). Ensure the process can write there.
+2. **Contents:** One JSON object keyed by chat ID (string). Each user has: `add_requests`, `words_added`, `collocations_added`, `train_requests`, `exercises_answered`, `last_request_at` (RFC3339). The file is overwritten on each update (add/train/answer).
+3. **How to use:** Read the file for analysis (e.g. count active users, total requests, last activity). Same file is used by the Telegram bot and the MCP server when both are configured with the same path (e.g. same volume in Docker).
+
+If `STATS_FILE_PATH` is empty, no stats are written.
+
+---
+
 ## Quick reference
 
 | Step | Action |

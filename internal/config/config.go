@@ -13,6 +13,10 @@ type Config struct {
 	LLMAPIKey        string
 	LLMModel         string
 	LLMTimeout       time.Duration
+	// ErrorLogPath: if set, error-level logs are appended to this file (JSON lines) for analysis.
+	ErrorLogPath string
+	// StatsFilePath: if set, per-user usage stats (add/train/answer counts, last request) are written to this JSON file.
+	StatsFilePath string
 }
 
 func Load() *Config {
@@ -33,5 +37,7 @@ func Load() *Config {
 		LLMAPIKey:        os.Getenv("LLM_API_KEY"),
 		LLMModel:         os.Getenv("LLM_MODEL"),
 		LLMTimeout:       time.Duration(timeoutSec) * time.Second,
+		ErrorLogPath:     os.Getenv("ERROR_LOG_PATH"),
+		StatsFilePath:    os.Getenv("STATS_FILE_PATH"),
 	}
 }

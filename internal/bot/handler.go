@@ -9,20 +9,22 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"vocab-bot/internal/llm"
+	"vocab-bot/internal/stats"
 	"vocab-bot/internal/trainer"
+	"vocab-bot/internal/words"
 )
 
 var wordSplit = regexp.MustCompile(`[\s,;]+`)
 
 // Input limits to avoid abuse and oversized LLM payloads.
 const (
-	maxAddInputChars  = 2000   // max characters for /add word list
-	maxAddWords       = 50     // max words per /add
-	maxAnswerChars    = 2000   // max characters for training answer
+	maxAddInputChars = 2000 // max characters for /add word list
+	maxAnswerChars   = 2000 // max characters for training answer
 )
 
 type Handler struct {
 	Trainer *trainer.Trainer
+	Stats   stats.Recorder // optional; use stats.NopRecorder{} when not configured
 }
 
 func (h *Handler) HandleUpdate(ctx context.Context, bot *tgbotapi.BotAPI, update tgbotapi.Update) {
@@ -59,7 +61,7 @@ func (h *Handler) HandleUpdate(ctx context.Context, bot *tgbotapi.BotAPI, update
 
 func (h *Handler) handleAdd(ctx context.Context, bot *tgbotapi.BotAPI, chatID int64) {
 	h.Trainer.Repo.UpsertChatState(chatID, "ADDING")
-	h.send(bot, chatID, "Send a list of words (comma or space separated), e.g. deadline, meeting, feedback")
+	h.send(bot, chatID, "Send up to %d words (comma or space separated), e.g. deadline, meeting, feedback. Only English-like words are accepted.", words.MaxWordsPerAdd)
 }
 
 func (h *Handler) handleTrain(ctx context.Context, bot *tgbotapi.BotAPI, chatID int64) {
@@ -72,6 +74,9 @@ func (h *Handler) handleTrain(ctx context.Context, bot *tgbotapi.BotAPI, chatID 
 	if ex == nil {
 		h.send(bot, chatID, "No exercises yet. Add words with /add and send a list (e.g. deadline, task, priority). If you just added words, try /train again.")
 		return
+	}
+	if h.Stats != nil {
+		h.Stats.RecordTrain(chatID)
 	}
 	h.send(bot, chatID, ex.Prompt)
 }
@@ -108,20 +113,31 @@ func (h *Handler) handleMessage(ctx context.Context, bot *tgbotapi.BotAPI, chatI
 			h.send(bot, chatID, "List too long. Send at most %d characters.", maxAddInputChars)
 			return
 		}
-		words := parseWords(text)
-		if len(words) == 0 {
+		rawWords := parseWords(text)
+		if len(rawWords) == 0 {
 			h.send(bot, chatID, "No words found. Send words separated by comma or space, e.g. deadline, meeting")
 			return
 		}
-		if len(words) > maxAddWords {
-			words = words[:maxAddWords]
-			h.send(bot, chatID, "Using the first %d words; the rest were skipped.", maxAddWords)
+		if len(rawWords) > words.MaxWordsPerAdd {
+			h.send(bot, chatID, "Send at most %d words per message. You sent %d — please send fewer and try again.", words.MaxWordsPerAdd, len(rawWords))
+			return
 		}
-		n, err := h.Trainer.AddWords(ctx, chatID, words)
+		valid, invalid := words.Filter(rawWords)
+		if len(valid) == 0 {
+			h.send(bot, chatID, "No valid English words. Skipped: %s. Use single English words (letters only, 2+ chars), e.g. deadline, meeting.", strings.Join(invalid, ", "))
+			return
+		}
+		if len(invalid) > 0 {
+			h.send(bot, chatID, "Skipped (not valid): %s. Adding: %s.", strings.Join(invalid, ", "), strings.Join(valid, ", "))
+		}
+		n, err := h.Trainer.AddWords(ctx, chatID, valid)
 		if err != nil {
 			slog.Error("add words", "err", err)
 			h.send(bot, chatID, "Error generating collocations: "+err.Error())
 			return
+		}
+		if h.Stats != nil {
+			h.Stats.RecordAdd(chatID, len(valid), n)
 		}
 		if n == 0 {
 			h.send(bot, chatID, "Added 0. All phrases already in the bank or try different words. /train")
@@ -137,6 +153,9 @@ func (h *Handler) handleMessage(ctx context.Context, bot *tgbotapi.BotAPI, chatI
 		if err != nil {
 			h.send(bot, chatID, "Error: "+err.Error())
 			return
+		}
+		if h.Stats != nil {
+			h.Stats.RecordAnswer(chatID)
 		}
 		if grade.IsCorrect {
 			msg := "✅ Correct! (%d/100)\n\n%s"

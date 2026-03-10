@@ -12,14 +12,29 @@ import (
 	"vocab-bot/internal/config"
 	"vocab-bot/internal/db"
 	"vocab-bot/internal/llm"
+	"vocab-bot/internal/logger"
+	"vocab-bot/internal/stats"
 	"vocab-bot/internal/trainer"
 )
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	slog.SetDefault(logger)
-
 	cfg := config.Load()
+	stderrHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})
+	logHandler := slog.Handler(stderrHandler)
+	var openErr error
+	if cfg.ErrorLogPath != "" {
+		f, err := logger.OpenErrorLog(cfg.ErrorLogPath)
+		if err != nil {
+			openErr = err
+		} else {
+			defer f.Close()
+			logHandler = logger.NewTeeErrorHandler(stderrHandler, f)
+		}
+	}
+	slog.SetDefault(slog.New(logHandler))
+	if openErr != nil {
+		slog.Error("error log file not available", "path", cfg.ErrorLogPath, "err", openErr)
+	}
 	if cfg.TelegramBotToken == "" {
 		slog.Error("TELEGRAM_BOT_TOKEN is required")
 		os.Exit(1)
@@ -40,7 +55,16 @@ func main() {
 
 	llmClient := llm.NewClient(cfg.LLMAPIBase, cfg.LLMAPIKey, cfg.LLMModel, cfg.LLMTimeout)
 	tr := &trainer.Trainer{Repo: repo, LLM: llmClient}
-	handler := &bot.Handler{Trainer: tr}
+	var statsRec stats.Recorder = stats.NopRecorder{}
+	if cfg.StatsFilePath != "" {
+		store, err := stats.NewFileStore(cfg.StatsFilePath)
+		if err != nil {
+			slog.Error("stats file not available", "path", cfg.StatsFilePath, "err", err)
+		} else {
+			statsRec = store
+		}
+	}
+	handler := &bot.Handler{Trainer: tr, Stats: statsRec}
 
 	telegramBot, err := tgbotapi.NewBotAPI(cfg.TelegramBotToken)
 	if err != nil {

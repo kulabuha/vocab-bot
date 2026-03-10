@@ -14,7 +14,9 @@ import (
 	"vocab-bot/internal/db"
 	"vocab-bot/internal/llm"
 	"vocab-bot/internal/mcp"
+	"vocab-bot/internal/stats"
 	"vocab-bot/internal/trainer"
+	"vocab-bot/internal/words"
 )
 
 func main() {
@@ -37,9 +39,17 @@ func main() {
 
 	llmClient := llm.NewClient(cfg.LLMAPIBase, cfg.LLMAPIKey, cfg.LLMModel, cfg.LLMTimeout)
 	tr := &trainer.Trainer{Repo: repo, LLM: llmClient}
+	var statsRec stats.Recorder = stats.NopRecorder{}
+	if cfg.StatsFilePath != "" {
+		if store, err := stats.NewFileStore(cfg.StatsFilePath); err != nil {
+			slog.Error("stats file not available", "path", cfg.StatsFilePath, "err", err)
+		} else {
+			statsRec = store
+		}
+	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /add_words", handleAddWords(tr))
+	mux.HandleFunc("POST /add_words", handleAddWords(tr, statsRec))
 	mux.HandleFunc("POST /next_exercise", handleNextExercise(tr))
 	mux.HandleFunc("POST /grade_answer", handleGradeAnswer(tr))
 	mux.HandleFunc("GET /stats", handleStats(tr))
@@ -65,18 +75,28 @@ func main() {
 	stop()
 }
 
-func handleAddWords(tr *trainer.Trainer) http.HandlerFunc {
+func handleAddWords(tr *trainer.Trainer, rec stats.Recorder) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req mcp.AddWordsRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		n, err := tr.AddWords(r.Context(), req.ChatID, req.Words)
+		if len(req.Words) > words.MaxWordsPerAdd {
+			http.Error(w, fmt.Sprintf("maximum %d words per request", words.MaxWordsPerAdd), http.StatusBadRequest)
+			return
+		}
+		valid, _ := words.Filter(req.Words)
+		if len(valid) == 0 {
+			http.Error(w, "no valid English words in request", http.StatusBadRequest)
+			return
+		}
+		n, err := tr.AddWords(r.Context(), req.ChatID, valid)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		rec.RecordAdd(req.ChatID, len(valid), n)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(mcp.AddWordsResult{Created: n})
 	}

@@ -8,7 +8,7 @@
 
 ## Input limits
 
-- **Adding words** (`/add`): max 2000 characters, max 50 words per message (excess dropped). Reduces abuse and keeps LLM requests bounded.
+- **Adding words** (`/add`): max 2000 characters, **max 5 words per message** (excess rejected; user must send fewer). Only valid English-like words are accepted (letters, optional hyphen/apostrophe, 2+ chars; numbers and trash are filtered). Reduces abuse and keeps LLM requests bounded.
 - **Training answers**: max 2000 characters per message. Prevents oversized payloads to the grading API.
 
 ## Network

@@ -37,7 +37,7 @@ func (h *Handler) HandleUpdate(ctx context.Context, bot *tgbotapi.BotAPI, update
 
 	switch {
 	case text == "/start":
-		h.send(bot, chatID, "Hi! I'm a collocation practice bot.\n\n/add — add words (I'll generate collocations)\n/train — start training\n/stats — your stats\n/cleanup — delete all your data (collocations, exercises, progress)")
+		h.send(bot, chatID, "Hi! I'm a collocation practice bot.\n\n/add — add words (I'll generate collocations)\n/train — start training\n/stats — your stats\n/cleanup — unassign you from all your collocations (words stay in the shared pool); deletes your attempts and state")
 		return
 	case text == "/add":
 		h.handleAdd(ctx, bot, chatID)
@@ -86,13 +86,13 @@ func (h *Handler) handleStats(ctx context.Context, bot *tgbotapi.BotAPI, chatID 
 }
 
 func (h *Handler) handleCleanup(ctx context.Context, bot *tgbotapi.BotAPI, chatID int64) {
-	attempts, exercises, collocs, err := h.Trainer.Repo.CleanupUserData(chatID)
+	attempts, exercises, unassigned, err := h.Trainer.Repo.CleanupUserData(chatID)
 	if err != nil {
 		slog.Error("cleanup", "err", err)
 		h.send(bot, chatID, "Error: "+err.Error())
 		return
 	}
-	h.send(bot, chatID, "Your data was deleted: %d attempt(s), %d exercise(s), %d collocation(s). You can /add words again to start fresh.", attempts, exercises, collocs)
+	h.send(bot, chatID, "You're unsigned: %d attempt(s) and %d exercise(s) removed; %d collocation(s) moved to the shared pool (words stay for others). You can /add words again to start fresh.", attempts, exercises, unassigned)
 }
 
 func (h *Handler) handleMessage(ctx context.Context, bot *tgbotapi.BotAPI, chatID int64, text string) {

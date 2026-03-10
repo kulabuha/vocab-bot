@@ -11,6 +11,8 @@ type Repo interface {
 	ResetRefreshCounter(chatID int64) error
 
 	InsertCollocations(chatID int64, items []domain.Collocation) (int, error)
+	// GetExistingPhrasesBySourceWords returns distinct (phrase, source_word, gap_sentence) for the given source words from any user. Used to reuse phrases when a user adds a word that already exists in the DB (no LLM call).
+	GetExistingPhrasesBySourceWords(sourceWords []string) ([]struct{ Phrase, SourceWord, GapSentence string }, error)
 	GetCollocationByID(id int64) (*domain.Collocation, error)
 	GetNextDueLearning(chatID int64, now int64, limit int) ([]domain.Collocation, error)
 	GetAnyLearning(chatID int64, limit int) ([]domain.Collocation, error)
@@ -23,7 +25,7 @@ type Repo interface {
 
 	Stats(chatID int64) (mastered, learning, newCount int, err error)
 
-	// CleanupUserData deletes all data for the given chat: attempts, exercises, chat_state,
-	// and collocations that are only referenced by this chat's exercises. Returns counts of deleted rows.
-	CleanupUserData(chatID int64) (attemptsDeleted, exercisesDeleted, collocationsDeleted int64, err error)
+	// CleanupUserData removes the user from the bot: deletes attempts, exercises, chat_state.
+	// Collocations are not deleted: they are moved to the shared pool (chat_id=0) so other users can reuse them; if the pool already has that phrase, the user's row is deleted. Returns counts of deleted rows and collocationsUnassigned (moved to pool or removed as duplicate).
+	CleanupUserData(chatID int64) (attemptsDeleted, exercisesDeleted, collocationsUnassigned int64, err error)
 }

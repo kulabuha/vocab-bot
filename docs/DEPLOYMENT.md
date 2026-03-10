@@ -265,16 +265,15 @@ If the bot is running, you’ll see logs (e.g. “started” or “polling”). 
    `docker compose ps` — container state should be `Up`.
 
 4. **Data**  
-   After using `/add` and `/train`, the DB grows. Use **`/cleanup`** in the bot to delete old attempt records (older than 90 days); progress and collocations are unchanged. This keeps the SQLite file from growing without bound.
+   After using `/add` and `/train`, the DB grows. Use **`/cleanup`** in the bot to unassign the current user: attempts and exercises are deleted; collocations are moved to the shared pool (words stay in the DB for reuse). Other users are unaffected.
 
 ---
 
 ## 4.1 Database and multi-user
 
 - **SQLite** is the only store; one file (e.g. `/data/app.db` in Docker). No extra DB server.
-- **Current design: one shared vocabulary.** Collocations and stats are global (not per user). Several users can use the same bot; they share the same collocation pool and see the same stats. This is enough for a single learner or a small shared bot.
-- **Per-user decks** would require a schema change (e.g. `chat_id` on `collocations` and filtering all queries). Not in scope for the current MVP.
-- **Cleanup:** `/cleanup` deletes attempt history older than 90 days to limit DB size. Collocations and progress (level, next_due) are not removed.
+- **Shared phrase pool, per-user progress:** Collocations are stored per user (`chat_id`). We keep at most **5 collocations per word**. When user A adds a word (e.g. "deadline"), the bot calls the LLM and stores up to 5 phrases for A. When user B later adds the same word, the bot finds those phrases in the DB and **copies** them for B (no LLM call). Each user only sees collocations for words they have added; level, `next_due`, and stats are per user. So the system reuses the same phrase set for the same word across users (saving LLM cost) while keeping learning state and visibility strictly per user.
+- **Cleanup:** `/cleanup` unsigns the current user: deletes attempts, exercises, and chat state; moves that user's collocations to the shared pool (`chat_id=0`) so the phrases remain for others. Use it to reset your learning; you can `/add` again to start fresh.
 
 ---
 

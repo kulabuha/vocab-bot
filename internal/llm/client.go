@@ -198,7 +198,11 @@ func (c *Client) GenerateCollocations(ctx context.Context, words []string) ([]do
 	now := time.Now().Unix()
 	var out []domain.Collocation
 	for _, item := range gen.Items {
+		n := 0
 		for _, coll := range item.Collocations {
+			if n >= domain.MaxCollocationsPerWord {
+				break
+			}
 			if coll.Phrase == "" {
 				continue
 			}
@@ -217,6 +221,7 @@ func (c *Client) GenerateCollocations(ctx context.Context, words []string) ([]do
 				UpdatedAt:   now,
 				GapSentence: gapSentence,
 			})
+			n++
 		}
 	}
 	return out, nil

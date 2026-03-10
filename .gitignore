@@ -9,10 +9,10 @@
 *.db-wal
 data/
 
-# Binaries
+# Binaries (root only; do not ignore internal/bot package)
 llm-debug
 vocab-bot
-bot
+/bot
 *.exe
 
 # OS / IDE

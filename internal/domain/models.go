@@ -6,6 +6,9 @@ const (
 	StatusNew      Status = "NEW"
 	StatusLearning Status = "LEARNING"
 	StatusMastered Status = "MASTERED"
+
+	// MaxCollocationsPerWord is the maximum number of collocations we store or reuse per source word (LLM and shared pool).
+	MaxCollocationsPerWord = 5
 )
 
 type Collocation struct {

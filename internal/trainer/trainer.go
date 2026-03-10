@@ -31,21 +31,62 @@ func (t *Trainer) AddWords(ctx context.Context, chatID int64, words []string) (i
 	if len(words) == 0 {
 		return 0, nil
 	}
-	collocs, err := t.LLM.GenerateCollocations(ctx, words)
+	// Reuse phrases already in DB (any user) so we don't call the LLM for the same word again.
+	existing, err := t.Repo.GetExistingPhrasesBySourceWords(words)
 	if err != nil {
-		return 0, fmt.Errorf("generate collocations: %w", err)
+		return 0, fmt.Errorf("get existing phrases: %w", err)
 	}
-	if len(collocs) == 0 {
-		return 0, nil
+	wordsWithExisting := make(map[string]bool)
+	for _, e := range existing {
+		wordsWithExisting[e.SourceWord] = true
 	}
-	n, err := t.Repo.InsertCollocations(chatID, collocs)
-	if err != nil {
-		return 0, fmt.Errorf("insert: %w", err)
+	var wordsToGenerate []string
+	for _, w := range words {
+		if !wordsWithExisting[w] {
+			wordsToGenerate = append(wordsToGenerate, w)
+		}
+	}
+	var total int
+	if len(wordsToGenerate) > 0 {
+		collocs, err := t.LLM.GenerateCollocations(ctx, wordsToGenerate)
+		if err != nil {
+			return 0, fmt.Errorf("generate collocations: %w", err)
+		}
+		if len(collocs) > 0 {
+			n, err := t.Repo.InsertCollocations(chatID, collocs)
+			if err != nil {
+				return 0, fmt.Errorf("insert: %w", err)
+			}
+			total += n
+		}
+	}
+	if len(existing) > 0 {
+		perWord := make(map[string]int)
+		templateCollocs := make([]domain.Collocation, 0, len(existing))
+		for _, e := range existing {
+			if perWord[e.SourceWord] >= domain.MaxCollocationsPerWord {
+				continue
+			}
+			perWord[e.SourceWord]++
+			templateCollocs = append(templateCollocs, domain.Collocation{
+				Phrase:      e.Phrase,
+				SourceWord:  e.SourceWord,
+				GapSentence: e.GapSentence,
+				Status:      domain.StatusNew,
+				Level:       1,
+				WrongStreak: 0,
+			})
+		}
+		n, err := t.Repo.InsertCollocations(chatID, templateCollocs)
+		if err != nil {
+			return 0, fmt.Errorf("insert existing phrases: %w", err)
+		}
+		total += n
 	}
 	if err := t.Repo.UpsertChatState(chatID, "IDLE"); err != nil {
-		return n, err
+		return total, err
 	}
-	return n, nil
+	return total, nil
 }
 
 func (t *Trainer) NextExercise(ctx context.Context, chatID int64) (*domain.Exercise, error) {

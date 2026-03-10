@@ -78,8 +78,9 @@ Endpoints: `POST /add_words`, `POST /next_exercise`, `POST /grade_answer`, `GET 
 
 ## Database and cleanup
 
-- One SQLite file; no separate DB server. **Several users** can use the same bot: vocabulary and stats are shared (one pool). For per-user decks you’d need a schema change (see `docs/DEPLOYMENT.md`).
-- **`/cleanup`** — deletes attempt records older than 90 days to keep the DB small; progress and collocations are unchanged.
+- One SQLite file; no separate DB server. **Several users** can use the same bot.
+- **Shared phrase pool, per-user progress:** When a user adds a word (e.g. "deadline"), the bot may call the LLM to generate collocations (up to **5 per word**) and stores them for that user. If another user later adds the same word, the bot reuses the phrases already in the DB (no LLM call) and creates a copy for the new user. Each user only sees collocations for words they have added, and each user has their own level, `next_due`, and stats per phrase. So the "word list" is shared (we avoid duplicate LLM calls), but visibility and progress are strictly per user. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details.
+- **`/cleanup`** — unsigns you from all your collocations: your attempts and exercises are deleted; your collocation rows are moved to the shared pool (so the phrases stay in the DB for others to reuse). You can `/add` again to start fresh. Other users are unaffected.
 
 ## Project layout
 

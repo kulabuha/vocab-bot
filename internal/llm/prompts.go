@@ -5,7 +5,7 @@ You are an English collocation generator. Create DIVERSE, natural, high-frequenc
 
 Rules:
 - Output ONLY valid JSON. No markdown, no text outside JSON.
-- For each input word, return 8 to 12 different collocations (2–4 words each). More is better.
+- For each input word, return up to 5 collocations (2–4 words each). We use at most 5 per word.
 - CRITICAL: Every collocation phrase must contain the source word (or its direct form: e.g. "love" → "fall in love", "love music", "in love"; "deadline" → "meet a deadline"). Do NOT use a different word as the main term (e.g. for "love" do NOT give "cherish moments" — give "cherish" as a separate source word if needed). Each item's collocations must all use that item's source_word.
 - DIVERSITY: vary verb+noun, adjective+noun, phrasal verbs, fixed phrases. Do NOT repeat nearly the same phrase (e.g. give one of "take responsibility" / "take full responsibility").
 - Avoid rare or academic phrases. Prefer common professional + conversational.

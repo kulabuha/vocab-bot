@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	"vocab-bot/internal/domain"
@@ -102,6 +103,33 @@ func (r *RepoSQLite) InsertCollocations(chatID int64, items []domain.Collocation
 		inserted += int(n)
 	}
 	return inserted, nil
+}
+
+func (r *RepoSQLite) GetExistingPhrasesBySourceWords(sourceWords []string) ([]struct{ Phrase, SourceWord, GapSentence string }, error) {
+	if len(sourceWords) == 0 {
+		return nil, nil
+	}
+	args := make([]any, len(sourceWords))
+	for i, w := range sourceWords {
+		args[i] = w
+	}
+	placeholders := strings.Repeat("?,", len(sourceWords))
+	placeholders = placeholders[:len(placeholders)-1]
+	query := `SELECT phrase, source_word, COALESCE(MAX(CASE WHEN gap_sentence != '' THEN gap_sentence END), '') FROM collocations WHERE source_word IN (` + placeholders + `) GROUP BY phrase, source_word`
+	rows, err := r.db.QueryContext(context.Background(), query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("get existing phrases: %w", err)
+	}
+	defer rows.Close()
+	var out []struct{ Phrase, SourceWord, GapSentence string }
+	for rows.Next() {
+		var p, sw, gs string
+		if err := rows.Scan(&p, &sw, &gs); err != nil {
+			return nil, fmt.Errorf("scan existing phrase: %w", err)
+		}
+		out = append(out, struct{ Phrase, SourceWord, GapSentence string }{p, sw, gs})
+	}
+	return out, rows.Err()
 }
 
 func (r *RepoSQLite) GetCollocationByID(id int64) (*domain.Collocation, error) {
@@ -263,7 +291,10 @@ func (r *RepoSQLite) Stats(chatID int64) (mastered, learning, newCount int, err 
 	return mastered, learning, newCount, nil
 }
 
-func (r *RepoSQLite) CleanupUserData(chatID int64) (attemptsDeleted, exercisesDeleted, collocationsDeleted int64, err error) {
+// PoolChatID is the chat_id used for the shared phrase pool (unassigned collocations after cleanup).
+const PoolChatID int64 = 0
+
+func (r *RepoSQLite) CleanupUserData(chatID int64) (attemptsDeleted, exercisesDeleted, collocationsUnassigned int64, err error) {
 	ctx := context.Background()
 	resAttempts, err := r.db.ExecContext(ctx, `DELETE FROM attempts WHERE chat_id = ?`, chatID)
 	if err != nil {
@@ -273,9 +304,43 @@ func (r *RepoSQLite) CleanupUserData(chatID int64) (attemptsDeleted, exercisesDe
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("delete exercises: %w", err)
 	}
-	resColloc, err := r.db.ExecContext(ctx, `DELETE FROM collocations WHERE chat_id = ?`, chatID)
+	// Unsign user from collocations: move to pool (chat_id=0) so phrases stay for reuse; if pool already has that phrase, delete this row.
+	rows, err := r.db.QueryContext(ctx, `SELECT id, phrase FROM collocations WHERE chat_id = ?`, chatID)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("delete collocations: %w", err)
+		return 0, 0, 0, fmt.Errorf("list user collocations: %w", err)
+	}
+	var ids []int64
+	var phrases []string
+	for rows.Next() {
+		var id int64
+		var phrase string
+		if err := rows.Scan(&id, &phrase); err != nil {
+			rows.Close()
+			return 0, 0, 0, fmt.Errorf("scan collocation: %w", err)
+		}
+		ids = append(ids, id)
+		phrases = append(phrases, phrase)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, 0, 0, fmt.Errorf("iter collocations: %w", err)
+	}
+	for i, id := range ids {
+		phrase := phrases[i]
+		var exists int
+		err := r.db.QueryRowContext(ctx, `SELECT 1 FROM collocations WHERE chat_id = ? AND phrase = ? LIMIT 1`, PoolChatID, phrase).Scan(&exists)
+		if err != nil && err != sql.ErrNoRows {
+			return 0, 0, 0, fmt.Errorf("check pool for phrase: %w", err)
+		}
+		if err == sql.ErrNoRows {
+			_, err = r.db.ExecContext(ctx, `UPDATE collocations SET chat_id = ? WHERE id = ?`, PoolChatID, id)
+		} else {
+			_, err = r.db.ExecContext(ctx, `DELETE FROM collocations WHERE id = ?`, id)
+		}
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("unassign collocation: %w", err)
+		}
+		collocationsUnassigned++
 	}
 	_, err = r.db.ExecContext(ctx, `DELETE FROM chat_state WHERE chat_id = ?`, chatID)
 	if err != nil {
@@ -283,8 +348,7 @@ func (r *RepoSQLite) CleanupUserData(chatID int64) (attemptsDeleted, exercisesDe
 	}
 	na, _ := resAttempts.RowsAffected()
 	ne, _ := resExercises.RowsAffected()
-	nc, _ := resColloc.RowsAffected()
-	return na, ne, nc, nil
+	return na, ne, int64(len(ids)), nil
 }
 
 func init() {

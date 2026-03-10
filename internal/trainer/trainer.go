@@ -38,7 +38,7 @@ func (t *Trainer) AddWords(ctx context.Context, chatID int64, words []string) (i
 	if len(collocs) == 0 {
 		return 0, nil
 	}
-	n, err := t.Repo.InsertCollocations(collocs)
+	n, err := t.Repo.InsertCollocations(chatID, collocs)
 	if err != nil {
 		return 0, fmt.Errorf("insert: %w", err)
 	}
@@ -66,21 +66,21 @@ func (t *Trainer) NextExercise(ctx context.Context, chatID int64) (*domain.Exerc
 	var list []domain.Collocation
 	const poolSize = 50
 	if nextCounter%5 == 0 {
-		list, err = t.Repo.GetRandomMastered(5)
+		list, err = t.Repo.GetRandomMastered(chatID, 5)
 		if err != nil {
 			return nil, err
 		}
 		if len(list) == 0 {
-			list, err = t.Repo.GetNextDueLearning(now, poolSize)
+			list, err = t.Repo.GetNextDueLearning(chatID, now, poolSize)
 		}
 	} else {
-		list, err = t.Repo.GetNextDueLearning(now, poolSize)
+		list, err = t.Repo.GetNextDueLearning(chatID, now, poolSize)
 	}
 	if err != nil {
 		return nil, err
 	}
 	if len(list) == 0 {
-		list, err = t.Repo.GetAnyLearning(poolSize)
+		list, err = t.Repo.GetAnyLearning(chatID, poolSize)
 		if err != nil || len(list) == 0 {
 			return nil, nil
 		}
@@ -89,7 +89,7 @@ func (t *Trainer) NextExercise(ctx context.Context, chatID int64) (*domain.Exerc
 	c := list[rand.Intn(len(list))]
 	// Exercise type is fixed by the collocation's current level until it is mastered (see principles: Stage 1→2→3→4).
 	kind := exerciseKindForLevel(c.Level, c.Status)
-	prompt := buildPrompt(kind, c.Level, c.Phrase) // level shown in prompt so user sees current stage
+	prompt := buildPrompt(kind, c.Level, c.Phrase, c.SourceWord, c.GapSentence)
 	ex := domain.Exercise{
 		ChatID:        chatID,
 		CollocationID:  c.ID,
@@ -150,21 +150,38 @@ func stageLabel(kind domain.ExerciseKind, level int) string {
 	return "Level " + strconv.Itoa(level) + " — " + name
 }
 
-func buildPrompt(kind domain.ExerciseKind, level int, phrase string) string {
+func buildPrompt(kind domain.ExerciseKind, level int, phrase, sourceWord, gapSentence string) string {
 	header := stageLabel(kind, level)
 	ph := "*" + phrase + "*"
+	sw := "*" + sourceWord + "*"
 	var body string
 	switch kind {
 	case domain.KindMeaning:
 		body = "What does " + ph + " mean? Explain in your own words (in English)."
 	case domain.KindGap:
-		body = "Complete the sentence using " + ph + " (in English). Reply with the full sentence.\n\n\"She had to __________ before the exam.\""
+		if gapSentence != "" {
+			if sourceWord != "" {
+				body = "Complete the sentence. The missing part is a collocation that includes the word " + sw + " (in English). Reply with the full sentence.\n\n\"" + gapSentence + "\""
+			} else {
+				body = "Complete the sentence. The missing part is a collocation (in English). Reply with the full sentence.\n\n\"" + gapSentence + "\""
+			}
+		} else {
+			body = "Complete the sentence using " + ph + " (in English). Reply with the full sentence.\n\n\"She had to __________ before the exam.\""
+		}
 	case domain.KindFill:
 		body = "Use the collocation " + ph + " in one natural sentence (in English)."
 	case domain.KindParaphrase:
 		body = "Rewrite the following using " + ph + " (in English):\n\n\"He admitted it was his fault.\""
 	case domain.KindRefresh:
-		body = "Complete the sentence using " + ph + " (in English). Reply with the full sentence.\n\n\"She had to __________ before the exam.\""
+		if gapSentence != "" {
+			if sourceWord != "" {
+				body = "Complete the sentence. The missing part is a collocation that includes the word " + sw + " (in English). Reply with the full sentence.\n\n\"" + gapSentence + "\""
+			} else {
+				body = "Complete the sentence. The missing part is a collocation (in English). Reply with the full sentence.\n\n\"" + gapSentence + "\""
+			}
+		} else {
+			body = "Complete the sentence using " + ph + " (in English). Reply with the full sentence.\n\n\"She had to __________ before the exam.\""
+		}
 	default:
 		body = "What does " + ph + " mean? Explain in your own words (in English)."
 	}

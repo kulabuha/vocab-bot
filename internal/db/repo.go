@@ -10,11 +10,11 @@ type Repo interface {
 	IncRefreshCounter(chatID int64) (newVal int, err error)
 	ResetRefreshCounter(chatID int64) error
 
-	InsertCollocations(items []domain.Collocation) (int, error)
+	InsertCollocations(chatID int64, items []domain.Collocation) (int, error)
 	GetCollocationByID(id int64) (*domain.Collocation, error)
-	GetNextDueLearning(now int64, limit int) ([]domain.Collocation, error)
-	GetAnyLearning(limit int) ([]domain.Collocation, error)
-	GetRandomMastered(limit int) ([]domain.Collocation, error)
+	GetNextDueLearning(chatID int64, now int64, limit int) ([]domain.Collocation, error)
+	GetAnyLearning(chatID int64, limit int) ([]domain.Collocation, error)
+	GetRandomMastered(chatID int64, limit int) ([]domain.Collocation, error)
 	UpdateProgressAfterAttempt(collocID int64, newStatus domain.Status, newLevel int, nextDue int64, wrongStreak int) error
 
 	CreateExercise(ex domain.Exercise) (int64, error)

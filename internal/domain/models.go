@@ -18,4 +18,6 @@ type Collocation struct {
 	WrongStreak int
 	CreatedAt   int64
 	UpdatedAt   int64
+	// GapSentence is the example sentence with the phrase replaced by __________ (for GAP/REFRESH). Empty if not set.
+	GapSentence string
 }

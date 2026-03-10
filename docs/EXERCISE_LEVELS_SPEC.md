@@ -34,10 +34,13 @@ After **Level 4** correct → collocation becomes **MASTERED**. No Level 5; mast
 
 ### Level 2 — GAP (controlled production)
 - **Prompt (user):**  
+  When a phrase-specific gap sentence is stored (from the generator’s example):  
   `Level 2 — Fill the gap`  
-  `Complete the sentence using *<phrase>* (in English):`  
-  `«<sentence with one gap, e.g. "She had to __________ before the exam.">»`
-- **Grading:** Answer must contain the collocation (or the missing part); allow small grammatical variations. Gap sentence can be fixed per phrase or generated once at add-time (stored) or kept generic.
+  `Complete the sentence. The missing part is a collocation that includes the word *<source_word>* (in English). Reply with the full sentence.`  
+  `«<sentence with one gap, e.g. "We need to __________ by Friday.">»`  
+  The full collocation is **not** shown; the **source word** (e.g. *deadline*) is given as a clue so the user knows which word family to use but must recall the exact phrase (e.g. *meet a deadline*).  
+  Fallback (no gap sentence): same as before, with the collocation shown.
+- **Grading:** Answer must contain the required collocation (or the missing part); allow small grammatical variations.
 
 ### Level 3 — FILL (free production)
 - **Prompt (user):**  
@@ -54,10 +57,8 @@ After **Level 4** correct → collocation becomes **MASTERED**. No Level 5; mast
 
 ### REFRESH (mastered only)
 - **Prompt (user):**  
-  `Refresh — Fill the gap`  
-  `Complete the sentence using *<phrase>* (in English):`  
-  `«<sentence with gap>»`
-- Same as Level 2 style; used only for items already MASTERED, to reinforce retention.
+  Same as Level 2: when a gap sentence exists, show only the sentence with the blank (collocation not shown). Otherwise show collocation + generic sentence.
+- Used only for items already MASTERED, to reinforce retention.
 
 ---
 

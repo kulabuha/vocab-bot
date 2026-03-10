@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"math/rand"
-	"strings"
 	"time"
 
 	"vocab-bot/internal/domain"
@@ -78,7 +77,7 @@ func (r *RepoSQLite) ResetRefreshCounter(chatID int64) error {
 	return nil
 }
 
-func (r *RepoSQLite) InsertCollocations(items []domain.Collocation) (int, error) {
+func (r *RepoSQLite) InsertCollocations(chatID int64, items []domain.Collocation) (int, error) {
 	if len(items) == 0 {
 		return 0, nil
 	}
@@ -93,9 +92,9 @@ func (r *RepoSQLite) InsertCollocations(items []domain.Collocation) (int, error)
 	var inserted int
 	for _, c := range items {
 		res, err := r.db.ExecContext(context.Background(), `
-			INSERT OR IGNORE INTO collocations (phrase, source_word, status, level, next_due, wrong_streak, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`, c.Phrase, c.SourceWord, string(c.Status), c.Level, c.NextDue, c.WrongStreak, c.CreatedAt, c.UpdatedAt)
+			INSERT OR IGNORE INTO collocations (chat_id, phrase, source_word, status, level, next_due, wrong_streak, created_at, updated_at, gap_sentence)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, chatID, c.Phrase, c.SourceWord, string(c.Status), c.Level, c.NextDue, c.WrongStreak, c.CreatedAt, c.UpdatedAt, c.GapSentence)
 		if err != nil {
 			return inserted, fmt.Errorf("insert collocation %q: %w", c.Phrase, err)
 		}
@@ -108,10 +107,11 @@ func (r *RepoSQLite) InsertCollocations(items []domain.Collocation) (int, error)
 func (r *RepoSQLite) GetCollocationByID(id int64) (*domain.Collocation, error) {
 	var c domain.Collocation
 	var status string
+	var gapSentence sql.NullString
 	err := r.db.QueryRowContext(context.Background(), `
-		SELECT id, phrase, source_word, status, level, next_due, wrong_streak, created_at, updated_at
+		SELECT id, phrase, source_word, status, level, next_due, wrong_streak, created_at, updated_at, gap_sentence
 		FROM collocations WHERE id = ?
-	`, id).Scan(&c.ID, &c.Phrase, &c.SourceWord, &status, &c.Level, &c.NextDue, &c.WrongStreak, &c.CreatedAt, &c.UpdatedAt)
+	`, id).Scan(&c.ID, &c.Phrase, &c.SourceWord, &status, &c.Level, &c.NextDue, &c.WrongStreak, &c.CreatedAt, &c.UpdatedAt, &gapSentence)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -119,17 +119,20 @@ func (r *RepoSQLite) GetCollocationByID(id int64) (*domain.Collocation, error) {
 		return nil, fmt.Errorf("get collocation: %w", err)
 	}
 	c.Status = domain.Status(status)
+	if gapSentence.Valid {
+		c.GapSentence = gapSentence.String
+	}
 	return &c, nil
 }
 
-func (r *RepoSQLite) GetNextDueLearning(now int64, limit int) ([]domain.Collocation, error) {
+func (r *RepoSQLite) GetNextDueLearning(chatID int64, now int64, limit int) ([]domain.Collocation, error) {
 	rows, err := r.db.QueryContext(context.Background(), `
-		SELECT id, phrase, source_word, status, level, next_due, wrong_streak, created_at, updated_at
+		SELECT id, phrase, source_word, status, level, next_due, wrong_streak, created_at, updated_at, gap_sentence
 		FROM collocations
-		WHERE status IN ('NEW','LEARNING') AND next_due <= ?
+		WHERE chat_id = ? AND status IN ('NEW','LEARNING') AND next_due <= ?
 		ORDER BY next_due ASC, wrong_streak DESC
 		LIMIT ?
-	`, now, limit)
+	`, chatID, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("get next due: %w", err)
 	}
@@ -137,14 +140,14 @@ func (r *RepoSQLite) GetNextDueLearning(now int64, limit int) ([]domain.Collocat
 	return scanCollocations(rows)
 }
 
-func (r *RepoSQLite) GetAnyLearning(limit int) ([]domain.Collocation, error) {
+func (r *RepoSQLite) GetAnyLearning(chatID int64, limit int) ([]domain.Collocation, error) {
 	rows, err := r.db.QueryContext(context.Background(), `
-		SELECT id, phrase, source_word, status, level, next_due, wrong_streak, created_at, updated_at
+		SELECT id, phrase, source_word, status, level, next_due, wrong_streak, created_at, updated_at, gap_sentence
 		FROM collocations
-		WHERE status IN ('NEW','LEARNING')
+		WHERE chat_id = ? AND status IN ('NEW','LEARNING')
 		ORDER BY next_due ASC
 		LIMIT ?
-	`, limit)
+	`, chatID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("get any learning: %w", err)
 	}
@@ -152,14 +155,14 @@ func (r *RepoSQLite) GetAnyLearning(limit int) ([]domain.Collocation, error) {
 	return scanCollocations(rows)
 }
 
-func (r *RepoSQLite) GetRandomMastered(limit int) ([]domain.Collocation, error) {
+func (r *RepoSQLite) GetRandomMastered(chatID int64, limit int) ([]domain.Collocation, error) {
 	rows, err := r.db.QueryContext(context.Background(), `
-		SELECT id, phrase, source_word, status, level, next_due, wrong_streak, created_at, updated_at
+		SELECT id, phrase, source_word, status, level, next_due, wrong_streak, created_at, updated_at, gap_sentence
 		FROM collocations
-		WHERE status = 'MASTERED'
+		WHERE chat_id = ? AND status = 'MASTERED'
 		ORDER BY RANDOM()
 		LIMIT ?
-	`, limit)
+	`, chatID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("get random mastered: %w", err)
 	}
@@ -172,11 +175,15 @@ func scanCollocations(rows *sql.Rows) ([]domain.Collocation, error) {
 	for rows.Next() {
 		var c domain.Collocation
 		var status string
-		err := rows.Scan(&c.ID, &c.Phrase, &c.SourceWord, &status, &c.Level, &c.NextDue, &c.WrongStreak, &c.CreatedAt, &c.UpdatedAt)
+		var gapSentence sql.NullString
+		err := rows.Scan(&c.ID, &c.Phrase, &c.SourceWord, &status, &c.Level, &c.NextDue, &c.WrongStreak, &c.CreatedAt, &c.UpdatedAt, &gapSentence)
 		if err != nil {
 			return nil, err
 		}
 		c.Status = domain.Status(status)
+		if gapSentence.Valid {
+			c.GapSentence = gapSentence.String
+		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -245,11 +252,11 @@ func (r *RepoSQLite) LogAttempt(chatID int64, ex *domain.Exercise, answer string
 func (r *RepoSQLite) Stats(chatID int64) (mastered, learning, newCount int, err error) {
 	err = r.db.QueryRowContext(context.Background(), `
 		SELECT
-			SUM(CASE WHEN status = 'MASTERED' THEN 1 ELSE 0 END),
-			SUM(CASE WHEN status = 'LEARNING' THEN 1 ELSE 0 END),
-			SUM(CASE WHEN status = 'NEW' THEN 1 ELSE 0 END)
-		FROM collocations
-	`).Scan(&mastered, &learning, &newCount)
+			COALESCE(SUM(CASE WHEN status = 'MASTERED' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status = 'LEARNING' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE WHEN status = 'NEW' THEN 1 ELSE 0 END), 0)
+		FROM collocations WHERE chat_id = ?
+	`, chatID).Scan(&mastered, &learning, &newCount)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("stats: %w", err)
 	}
@@ -258,38 +265,6 @@ func (r *RepoSQLite) Stats(chatID int64) (mastered, learning, newCount int, err 
 
 func (r *RepoSQLite) CleanupUserData(chatID int64) (attemptsDeleted, exercisesDeleted, collocationsDeleted int64, err error) {
 	ctx := context.Background()
-	// Collocation IDs that appear in this chat's exercises
-	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT collocation_id FROM exercises WHERE chat_id = ?`, chatID)
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("list collocations for chat: %w", err)
-	}
-	var collocIDs []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return 0, 0, 0, fmt.Errorf("scan collocation id: %w", err)
-		}
-		collocIDs = append(collocIDs, id)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, 0, 0, fmt.Errorf("iter collocations: %w", err)
-	}
-	// Keep only collocations that no other chat uses
-	var toDelete []int64
-	for _, id := range collocIDs {
-		var otherChats int
-		err := r.db.QueryRowContext(ctx,
-			`SELECT COUNT(DISTINCT chat_id) FROM exercises WHERE collocation_id = ? AND chat_id != ?`, id, chatID).Scan(&otherChats)
-		if err != nil {
-			return 0, 0, 0, fmt.Errorf("check collocation %d: %w", id, err)
-		}
-		if otherChats == 0 {
-			toDelete = append(toDelete, id)
-		}
-	}
-	// Delete in order: attempts -> exercises -> collocations -> chat_state
 	resAttempts, err := r.db.ExecContext(ctx, `DELETE FROM attempts WHERE chat_id = ?`, chatID)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("delete attempts: %w", err)
@@ -298,18 +273,9 @@ func (r *RepoSQLite) CleanupUserData(chatID int64) (attemptsDeleted, exercisesDe
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("delete exercises: %w", err)
 	}
-	var nColloc int64
-	if len(toDelete) > 0 {
-		query := `DELETE FROM collocations WHERE id IN (` + strings.TrimSuffix(strings.Repeat("?,", len(toDelete)), ",") + `)`
-		args := make([]any, len(toDelete))
-		for i, id := range toDelete {
-			args[i] = id
-		}
-		resColloc, err := r.db.ExecContext(ctx, query, args...)
-		if err != nil {
-			return 0, 0, 0, fmt.Errorf("delete collocations: %w", err)
-		}
-		nColloc, _ = resColloc.RowsAffected()
+	resColloc, err := r.db.ExecContext(ctx, `DELETE FROM collocations WHERE chat_id = ?`, chatID)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("delete collocations: %w", err)
 	}
 	_, err = r.db.ExecContext(ctx, `DELETE FROM chat_state WHERE chat_id = ?`, chatID)
 	if err != nil {
@@ -317,7 +283,8 @@ func (r *RepoSQLite) CleanupUserData(chatID int64) (attemptsDeleted, exercisesDe
 	}
 	na, _ := resAttempts.RowsAffected()
 	ne, _ := resExercises.RowsAffected()
-	return na, ne, nColloc, nil
+	nc, _ := resColloc.RowsAffected()
+	return na, ne, nc, nil
 }
 
 func init() {

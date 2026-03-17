@@ -55,13 +55,14 @@ Optional: from `vocab-bot/` run `./scripts/deploy-vps.sh` to start the bot (chec
    cp .env.example .env && nano .env   # set secrets
    docker compose up -d --build
    ```
-3. **Updates:** on the VPS, pull and rebuild:
+3. **Updates (redeploy without deleting the database):** On the VPS, pull and rebuild. The database is stored in a **Docker volume** (`bot-data`), not inside the image, so it is kept when you rebuild and restart:
    ```bash
    cd /path/to/my-collocation-learn-buddy
    git pull
    cd vocab-bot && docker compose up -d --build
    ```
-   Or use `./scripts/deploy-vps.sh` after `git pull` if you're already in `vocab-bot/`.
+   Or use `./scripts/deploy-vps.sh` after `git pull` if you're already in `vocab-bot/`.  
+   **Do not** run `docker compose down -v` — the `-v` flag removes volumes and **deletes the database**. Use `docker compose down` (without `-v`) if you need to stop the containers; the volume and all words/collocations stay.
 
 So: **push code to GitHub, then on the VPS always deploy from the repo** (clone once, then pull + rebuild for updates). Avoid copying archives for ongoing deploys.
 
@@ -318,7 +319,7 @@ See **`docs/SECURITY.md`** for input limits, secrets handling, and network guida
 
 To collect error-level logs for later analysis:
 
-1. **Set `ERROR_LOG_PATH`** in `.env` to a file path (e.g. `/var/log/vocab-bot/errors.log` or `./data/errors.log`). Ensure the process can write there (create the directory if needed).
+1. **Set `ERROR_LOG_PATH`** in `.env` to a file path. With Docker the `bot` service mounts `bot-data` at `/data`, so use a path inside it: **`/data/errors.log`** (no extra mount). On bare metal use e.g. `/var/log/vocab-bot/errors.log` and ensure the process can write there.
 2. **Behavior:** All `slog` error-level (and above) logs are appended to that file as **one JSON object per line** (e.g. `{"time":"...","level":"ERROR","msg":"...","err":"..."}`). Stderr is unchanged.
 3. **How to get / analyze:**
    - **View recent:** `tail -f /var/log/vocab-bot/errors.log`
@@ -334,7 +335,7 @@ If `ERROR_LOG_PATH` is empty or the file cannot be opened, errors are only writt
 
 To persist per-user usage stats to a separate JSON file:
 
-1. **Set `STATS_FILE_PATH`** in `.env` (e.g. `./data/stats.json` or `/var/lib/vocab-bot/stats.json`). Ensure the process can write there.
+1. **Set `STATS_FILE_PATH`** in `.env`. With Docker use **`/data/stats.json`** (same volume as DB). On bare metal use e.g. `./data/stats.json` or `/var/lib/vocab-bot/stats.json` and ensure the process can write there.
 2. **Contents:** One JSON object keyed by chat ID (string). Each user has: `add_requests`, `words_added`, `collocations_added`, `train_requests`, `exercises_answered`, `last_request_at` (RFC3339). The file is overwritten on each update (add/train/answer).
 3. **How to use:** Read the file for analysis (e.g. count active users, total requests, last activity). Same file is used by the Telegram bot and the MCP server when both are configured with the same path (e.g. same volume in Docker).
 

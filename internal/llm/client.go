@@ -208,7 +208,7 @@ func (c *Client) GenerateCollocations(ctx context.Context, words []string) ([]do
 			}
 			gapSentence := ""
 			if coll.ExampleProfessional != "" {
-				gapSentence = strings.Replace(coll.ExampleProfessional, coll.Phrase, "__________", 1)
+				gapSentence = GapSentenceFromExample(coll.ExampleProfessional, coll.Phrase)
 			}
 			out = append(out, domain.Collocation{
 				Phrase:      coll.Phrase,

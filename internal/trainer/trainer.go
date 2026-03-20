@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strconv"
+	"strings"
 	"time"
 
 	"vocab-bot/internal/domain"
@@ -200,11 +201,13 @@ func buildPrompt(kind domain.ExerciseKind, level int, phrase, sourceWord, gapSen
 	case domain.KindMeaning:
 		body = "What does " + ph + " mean? Explain in your own words (in English)."
 	case domain.KindGap:
-		if gapSentence != "" {
+		// Stored gap_sentence may be the full example if phrase didn't match LLM text exactly; repair here.
+		displayGap := llm.GapSentenceFromExample(gapSentence, phrase)
+		if displayGap != "" && strings.Contains(displayGap, "__________") {
 			if sourceWord != "" {
-				body = "Complete the sentence. The missing part is a collocation that includes the word " + sw + " (in English). Reply with the full sentence.\n\n\"" + gapSentence + "\""
+				body = "Complete the sentence. The missing part is a collocation that includes the word " + sw + " (in English). Reply with the full sentence.\n\n\"" + displayGap + "\""
 			} else {
-				body = "Complete the sentence. The missing part is a collocation (in English). Reply with the full sentence.\n\n\"" + gapSentence + "\""
+				body = "Complete the sentence. The missing part is a collocation (in English). Reply with the full sentence.\n\n\"" + displayGap + "\""
 			}
 		} else {
 			body = "Complete the sentence using " + ph + " (in English). Reply with the full sentence.\n\n\"She had to __________ before the exam.\""
@@ -214,11 +217,12 @@ func buildPrompt(kind domain.ExerciseKind, level int, phrase, sourceWord, gapSen
 	case domain.KindParaphrase:
 		body = "Rewrite the following using " + ph + " (in English):\n\n\"He admitted it was his fault.\""
 	case domain.KindRefresh:
-		if gapSentence != "" {
+		displayGap := llm.GapSentenceFromExample(gapSentence, phrase)
+		if displayGap != "" && strings.Contains(displayGap, "__________") {
 			if sourceWord != "" {
-				body = "Complete the sentence. The missing part is a collocation that includes the word " + sw + " (in English). Reply with the full sentence.\n\n\"" + gapSentence + "\""
+				body = "Complete the sentence. The missing part is a collocation that includes the word " + sw + " (in English). Reply with the full sentence.\n\n\"" + displayGap + "\""
 			} else {
-				body = "Complete the sentence. The missing part is a collocation (in English). Reply with the full sentence.\n\n\"" + gapSentence + "\""
+				body = "Complete the sentence. The missing part is a collocation (in English). Reply with the full sentence.\n\n\"" + displayGap + "\""
 			}
 		} else {
 			body = "Complete the sentence using " + ph + " (in English). Reply with the full sentence.\n\n\"She had to __________ before the exam.\""
